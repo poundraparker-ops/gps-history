@@ -78,6 +78,7 @@ input[type="range"]{
 </div>
 
 <button onclick="plot()">Plot Trajectory</button>
+<button onclick="clearAll()">Clear</button>
 
 </div>
 
@@ -143,6 +144,19 @@ function plot(){
  L.marker(arr[arr.length-1]).addTo(layer).bindPopup("STOP");
 
  map.fitBounds(poly.getBounds());
+}
+
+function clearAll(){
+ layer.clearLayers();
+
+ document.getElementById("input").value="";
+ document.getElementById("output").value="";
+
+ document.getElementById("color").value="#ff0000";
+ document.getElementById("weight").value=4;
+ document.getElementById("wval").innerText=4;
+
+ map.setView([-6.2,106.8],13);
 }
 
 </script>
