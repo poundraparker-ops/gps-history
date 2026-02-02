@@ -27,7 +27,7 @@ body{
 
 textarea{
  width:100%;
- height:150px;
+ height:140px;
  margin-top:5px;
  font-family:monospace;
 }
@@ -35,8 +35,22 @@ textarea{
 button{
  margin-top:8px;
  padding:8px 12px;
+ width:100%;
 }
 
+.control{
+ margin-top:10px;
+}
+
+label{
+ font-size:13px;
+ display:block;
+ margin-bottom:3px;
+}
+
+input[type="range"]{
+ width:100%;
+}
 </style>
 </head>
 
@@ -49,8 +63,19 @@ button{
 
 <button onclick="process()">Proses Penomoran</button>
 
-<b>Output (copy kalau perlu)</b>
+<b>Output</b>
 <textarea id="output"></textarea>
+
+<div class="control">
+<label>Warna Jalur</label>
+<input type="color" id="color" value="#ff0000">
+</div>
+
+<div class="control">
+<label>Ketebalan Jalur: <span id="wval">4</span> px</label>
+<input type="range" id="weight" min="1" max="10" value="4"
+ oninput="document.getElementById('wval').innerText=this.value">
+</div>
 
 <button onclick="plot()">Plot Trajectory</button>
 
@@ -62,51 +87,57 @@ button{
 
 <script>
 
-var map=L.map('map').setView([-6.2,106.8],13);
+var map = L.map('map').setView([-6.2,106.8],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-let layer=L.layerGroup().addTo(map);
+let layer = L.layerGroup().addTo(map);
 
 function clean(t){
  return t.match(/[-\d.,]+/)[0].replace(',','.');
 }
 
 function process(){
- let lines=document.getElementById("input").value.split('\n');
- let out=[];
- let c=1;
+ let lines = document.getElementById("input").value.split('\n');
+ let out = [];
+ let c = 1;
 
  lines.forEach(l=>{
-  l=l.trim();
-  if(!l)return;
-  let p=l.split(/\s+/);
-  if(p.length<2)return;
+  l = l.trim();
+  if(!l) return;
+  let p = l.split(/\s+/);
+  if(p.length < 2) return;
 
-  let lon=clean(p[0]);
-  let lat=clean(p[1]);
+  let lon = clean(p[0]);
+  let lat = clean(p[1]);
 
-  out.push(c+"."+lat+","+lon);
+  out.push(c + "." + lat + "," + lon);
   c++;
  });
 
- document.getElementById("output").value=out.join("\n");
+ document.getElementById("output").value = out.join("\n");
 }
 
 function plot(){
  layer.clearLayers();
 
- let arr=[];
+ let arr = [];
 
  document.getElementById("output").value.split('\n').forEach(l=>{
-  l=l.replace(/^\d+\./,'');
-  if(!l)return;
-  let p=l.split(',');
-  arr.push([parseFloat(p[0]),parseFloat(p[1])]);
+  l = l.replace(/^\d+\./,'');
+  if(!l) return;
+  let p = l.split(',');
+  arr.push([parseFloat(p[0]), parseFloat(p[1])]);
  });
 
- if(arr.length<2)return;
+ if(arr.length < 2) return;
 
- let poly=L.polyline(arr).addTo(layer);
+ let color = document.getElementById("color").value;
+ let weight = parseInt(document.getElementById("weight").value);
+
+ let poly = L.polyline(arr,{
+  color: color,
+  weight: weight
+ }).addTo(layer);
 
  L.marker(arr[0]).addTo(layer).bindPopup("START");
  L.marker(arr[arr.length-1]).addTo(layer).bindPopup("STOP");
