@@ -28,7 +28,9 @@ html,body{
  border-right:1px solid #ddd;
  padding:14px;
  box-sizing:border-box;
- overflow:auto;
+ display:flex;
+ flex-direction:column;
+ overflow:hidden;
 }
 
 #divider{
@@ -46,13 +48,14 @@ html,body{
 }
 
 textarea{
- width:100%;
- height:120px;
+ width:96%;
+ flex:1;              /* <- otomatis menyesuaikan sisa space */
  margin-top:6px;
  font-family:monospace;
  border-radius:6px;
  border:1px solid #ccc;
  padding:6px;
+ resize:none;          /* <- user tidak bisa resize */
 }
 
 button{
@@ -77,6 +80,7 @@ button:hover{
  border-radius:10px;
  padding:10px;
  margin-top:10px;
+ flex-shrink:0;        /* agar card tidak ikut mengecil */
 }
 
 h3{
@@ -104,38 +108,25 @@ input[type="range"],input[type="color"]{
 
 <h3>Input Excel (lon lat)</h3>
 <textarea id="input"></textarea>
-
 <button onclick="process()">Proses Penomoran</button>
 
 <h3>Output</h3>
 <textarea id="output"></textarea>
-
 <button onclick="plot()">Plot Trajectory</button>
 
 <div class="card">
-
 <label>Ketebalan Jalur: <span id="wval">4</span></label>
-<input type="range" id="weight" min="1" max="60" value="4"
- oninput="wval.innerText=this.value;updateStyle()">
-
+<input type="range" id="weight" min="1" max="60" value="4" oninput="wval.innerText=this.value;updateStyle()">
 <label>Warna Jalur</label>
 <input type="color" id="color" value="#ff0000" oninput="updateStyle()">
-
 </div>
 
 <div class="card">
-
-<label>
-<input type="checkbox" id="showPoints" checked onchange="updateStyle()"> Tampilkan Titik
-</label>
-
+<label><input type="checkbox" id="showPoints" checked onchange="updateStyle()"> Tampilkan Titik</label>
 <label>Ukuran Titik: <span id="pval">5</span></label>
-<input type="range" id="pointSize" min="1" max="30" value="5"
- oninput="pval.innerText=this.value;updateStyle()">
-
+<input type="range" id="pointSize" min="1" max="30" value="5" oninput="pval.innerText=this.value;updateStyle()">
 <label>Warna Titik</label>
 <input type="color" id="pointColor" value="#0000ff" oninput="updateStyle()">
-
 </div>
 
 <button onclick="clearAll()">Clear</button>
@@ -143,134 +134,76 @@ input[type="range"],input[type="color"]{
 </div>
 
 <div id="divider"></div>
-
 <div id="map"></div>
 
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script>
 
-var map=L.map('map').setView([-6.2,106.8],13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+/* ===== BASEMAPS ===== */
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM'});
+const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri Satellite'});
+
+var map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
+L.control.layers({"OSM":osm,"Satellite":esri}).addTo(map);
 
 let layer=L.layerGroup().addTo(map);
+let poly=null,points=[],coords=[];
 
-let poly=null;
-let points=[];
-let coords=[];
-
-// ===== SPLITTER =====
-
-const divider=document.getElementById("divider");
-const left=document.getElementById("left");
-
+/* ===== SPLITTER ===== */
 let dragging=false;
-
-divider.addEventListener("mousedown",()=>dragging=true);
-
-window.addEventListener("mouseup",()=>dragging=false);
-
-window.addEventListener("mousemove",e=>{
- if(!dragging) return;
-
- let w=e.clientX;
- if(w<320) w=320;
-
- left.style.width=w+"px";
+divider.onmousedown=()=>dragging=true;
+window.onmouseup=()=>dragging=false;
+window.onmousemove=e=>{
+ if(!dragging)return;
+ left.style.width=Math.max(320,e.clientX)+"px";
  map.invalidateSize();
-});
+};
 
-// =====================
-
-function clean(t){
- return t.match(/[-\d.,]+/)[0].replace(',','.');
-}
+/* ==================== */
+function clean(t){return t.match(/[-\d.,]+/)[0].replace(',','.');}
 
 function process(){
- let lines=input.value.split('\n');
- let out=[];
- let c=1;
-
- lines.forEach(l=>{
-  l=l.trim();
-  if(!l)return;
+ let c=1,out=[];
+ input.value.split('\n').forEach(l=>{
+  l=l.trim(); if(!l) return;
   let p=l.split(/\s+/);
-  if(p.length<2)return;
-
-  let lon=clean(p[0]);
-  let lat=clean(p[1]);
-
-  out.push(c+"."+lat+","+lon);
-  c++;
+  out.push(c+"."+clean(p[1])+","+clean(p[0])); c++;
  });
-
  output.value=out.join("\n");
 }
 
 function plot(){
- layer.clearLayers();
- coords=[];
- points=[];
- poly=null;
-
+ layer.clearLayers(); coords=[]; points=[];
  output.value.split('\n').forEach(l=>{
-  l=l.replace(/^\d+\./,'');
-  if(!l)return;
-  let p=l.split(',');
-  coords.push([parseFloat(p[0]),parseFloat(p[1])]);
+  l=l.replace(/^\d+\./,''); if(!l) return;
+  let p=l.split(','); coords.push([+p[0],+p[1]]);
  });
-
- if(coords.length<2)return;
+ if(coords.length<2) return;
 
  poly=L.polyline(coords).addTo(layer);
-
- coords.forEach(c=>{
-  let m=L.circleMarker(c);
-  points.push(m);
-  m.addTo(layer);
- });
-
+ coords.forEach(c=>points.push(L.circleMarker(c).addTo(layer)));
  L.marker(coords[0]).addTo(layer).bindPopup("START");
- L.marker(coords[coords.length-1]).addTo(layer).bindPopup("STOP");
-
+ L.marker(coords.at(-1)).addTo(layer).bindPopup("STOP");
  map.fitBounds(poly.getBounds());
-
  updateStyle();
 }
 
 function updateStyle(){
  if(!poly)return;
-
- poly.setStyle({
-  color:color.value,
-  weight:parseInt(weight.value)
- });
-
- let show=showPoints.checked;
- let size=parseInt(pointSize.value);
- let pc=pointColor.value;
-
+ poly.setStyle({color:color.value,weight:+weight.value});
  points.forEach(p=>{
-  if(show){
-   p.setStyle({
-    radius:size,
-    color:pc,
-    fillColor:pc,
-    fillOpacity:1
-   });
-   if(!map.hasLayer(p))p.addTo(layer);
-  }else{
-   layer.removeLayer(p);
-  }
+  if(showPoints.checked){
+   p.setStyle({radius:+pointSize.value,color:pointColor.value,fillColor:pointColor.value,fillOpacity:1});
+   if(!layer.hasLayer(p))layer.addLayer(p);
+  } else layer.removeLayer(p);
  });
 }
 
 function clearAll(){
  layer.clearLayers();
- input.value="";
- output.value="";
+ input.value=output.value="";
  poly=null;
  points=[];
  coords=[];
@@ -278,6 +211,5 @@ function clearAll(){
 }
 
 </script>
-
 </body>
 </html>
