@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GPS History Tool</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body{
+ margin:0;
+ font-family:Arial;
+ display:flex;
+ height:100vh;
+}
+
+#left{
+ width:35%;
+ padding:10px;
+ box-sizing:border-box;
+ border-right:1px solid #ccc;
+}
+
+#map{
+ flex:1;
+}
+
+textarea{
+ width:100%;
+ height:150px;
+ margin-top:5px;
+ font-family:monospace;
+}
+
+button{
+ margin-top:8px;
+ padding:8px 12px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="left">
+
+<b>Input Excel (longitude latitude)</b>
+<textarea id="input"></textarea>
+
+<button onclick="process()">Proses Penomoran</button>
+
+<b>Output (copy kalau perlu)</b>
+<textarea id="output"></textarea>
+
+<button onclick="plot()">Plot Trajectory</button>
+
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+var map=L.map('map').setView([-6.2,106.8],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let layer=L.layerGroup().addTo(map);
+
+function clean(t){
+ return t.match(/[-\d.,]+/)[0].replace(',','.');
+}
+
+function process(){
+ let lines=document.getElementById("input").value.split('\n');
+ let out=[];
+ let c=1;
+
+ lines.forEach(l=>{
+  l=l.trim();
+  if(!l)return;
+  let p=l.split(/\s+/);
+  if(p.length<2)return;
+
+  let lon=clean(p[0]);
+  let lat=clean(p[1]);
+
+  out.push(c+"."+lat+","+lon);
+  c++;
+ });
+
+ document.getElementById("output").value=out.join("\n");
+}
+
+function plot(){
+ layer.clearLayers();
+
+ let arr=[];
+
+ document.getElementById("output").value.split('\n').forEach(l=>{
+  l=l.replace(/^\d+\./,'');
+  if(!l)return;
+  let p=l.split(',');
+  arr.push([parseFloat(p[0]),parseFloat(p[1])]);
+ });
+
+ if(arr.length<2)return;
+
+ let poly=L.polyline(arr).addTo(layer);
+
+ L.marker(arr[0]).addTo(layer).bindPopup("START");
+ L.marker(arr[arr.length-1]).addTo(layer).bindPopup("STOP");
+
+ map.fitBounds(poly.getBounds());
+}
+
+</script>
+
+</body>
+</html>
