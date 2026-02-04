@@ -7,96 +7,122 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
+
+:root{--panel:#ffffffcc;}
+
 html,body{
- margin:0;
- height:100%;
- font-family:Inter,Arial;
- background:#f3f5f9;
- overflow:hidden;
+margin:0;height:100%;font-family:Inter,system-ui,Arial;overflow:hidden;
+background:
+radial-gradient(circle at 20% 20%, #e0e7ff 0%, transparent 40%),
+radial-gradient(circle at 80% 80%, #dbeafe 0%, transparent 40%),
+linear-gradient(180deg,#f8fafc,#eef2ff);
 }
 
-#app{
- display:flex;
- height:100%;
- width:100%;
-}
+#app{display:flex;height:100%}
 
 #left{
- width:360px;
- min-width:320px;
- background:white;
- border-right:1px solid #ddd;
- padding:14px;
- box-sizing:border-box;
- display:flex;
- flex-direction:column;
- overflow:hidden;
+width:340px;min-width:300px;max-width:600px;
+backdrop-filter:blur(14px);
+background:var(--panel);
+box-shadow:4px 0 20px rgba(0,0,0,.06);
+padding:10px;
+display:flex;
+flex-direction:column;
+gap:8px;
+user-select:none;
+font-size:13px;
 }
 
 #divider{
- width:6px;
- cursor:col-resize;
- background:#e5e7eb;
+width:6px;
+cursor:col-resize;
+background:linear-gradient(#c7d2fe,#818cf8,#c7d2fe);
 }
 
-#divider:hover{
- background:#cbd5f5;
-}
+#mapWrap{flex:1;position:relative}
+#map{height:100%}
 
-#map{
- flex:1;
+#mapStyle{
+position:absolute;
+top:12px;
+right:12px;
+backdrop-filter:blur(10px);
+background:#ffffffcc;
+padding:8px;
+border-radius:10px;
+z-index:999;
+font-size:12px;
 }
 
 textarea{
- width:96%;
- flex:1;              /* <- otomatis menyesuaikan sisa space */
- margin-top:6px;
- font-family:monospace;
- border-radius:6px;
- border:1px solid #ccc;
- padding:6px;
- resize:none;          /* <- user tidak bisa resize */
+width:96%;
+height:70px;
+border-radius:8px;
+border:1px solid #e5e7eb;
+padding:6px;
+font-family:monospace;
+resize:none;
+background:rgba(255,255,255,.6);
 }
 
 button{
- margin-top:10px;
- padding:10px;
- width:100%;
- border:none;
- border-radius:8px;
- background:#2563eb;
- color:white;
- cursor:pointer;
- transition:.15s;
+padding:8px;
+border:none;
+border-radius:10px;
+background:#2563eb;
+color:white;
+font-weight:600;
+cursor:pointer;
 }
 
-button:hover{
- transform:scale(1.03);
- background:#1d4ed8;
-}
+h3{font-size:11px;color:#64748b;text-transform:uppercase;margin:4px 0}
 
 .card{
- border:1px solid #ddd;
- border-radius:10px;
- padding:10px;
- margin-top:10px;
- flex-shrink:0;        /* agar card tidak ikut mengecil */
+background:rgba(255,255,255,.75);
+backdrop-filter:blur(10px);
+border:1px solid rgba(0,0,0,.05);
+border-radius:12px;
+padding:8px;
+display:flex;
+flex-direction:column;
+gap:6px;
 }
 
-h3{
- margin:6px 0;
- font-size:14px;
+/* SLIDER */
+
+.slider-container{
+position:relative;
+width:100%;
+height:8px;
+background:#bfc6d4;
+border-radius:999px;
+margin:6px 0 10px;
 }
 
-label{
- font-size:12px;
- display:block;
- margin-top:8px;
+.slider-progress{
+position:absolute;
+height:100%;
+background:linear-gradient(90deg,#2563eb,#60a5fa);
+border-radius:999px;
 }
 
-input[type="range"],input[type="color"]{
- width:100%;
+.slider-thumb-glass{
+position:absolute;
+top:50%;
+transform:translate(-50%,-50%);
+width:32px;
+height:20px;
+border-radius:999px;
+cursor:pointer;
+background:rgba(255,255,255,.7);
+backdrop-filter:blur(6px);
+border:1px solid rgba(255,255,255,.6);
+box-shadow:0 3px 8px rgba(0,0,0,.25);
+transition:.15s;
 }
+
+.leaflet-interactive{transition:stroke-width .15s ease}
+
 </style>
 </head>
 
@@ -106,17 +132,23 @@ input[type="range"],input[type="color"]{
 
 <div id="left">
 
-<h3>Input Excel (lon lat)</h3>
-<textarea id="input"></textarea>
-<button onclick="process()">Proses Penomoran</button>
+<h3>Input Excel (longitude, latitude)</h3>
+<textarea id="input" placeholder="Just paste here from excel table"></textarea>
+<button onclick="process()">Proses</button>
 
 <h3>Output</h3>
-<textarea id="output"></textarea>
-<button onclick="plot()">Plot Trajectory</button>
+<textarea id="output" readonly></textarea>
+<button onclick="plot()">Plot</button>
 
 <div class="card">
+<label><input type="checkbox" id="showPath" checked onchange="updateStyle()"> Tampilkan Jalur</label>
 <label>Ketebalan Jalur: <span id="wval">4</span></label>
-<input type="range" id="weight" min="1" max="60" value="4" oninput="wval.innerText=this.value;updateStyle()">
+
+<div class="slider-container" data-target="weight" data-min="1" data-max="60" data-value="4">
+<div class="slider-progress"></div>
+<div class="slider-thumb-glass"></div>
+</div>
+
 <label>Warna Jalur</label>
 <input type="color" id="color" value="#ff0000" oninput="updateStyle()">
 </div>
@@ -124,7 +156,12 @@ input[type="range"],input[type="color"]{
 <div class="card">
 <label><input type="checkbox" id="showPoints" checked onchange="updateStyle()"> Tampilkan Titik</label>
 <label>Ukuran Titik: <span id="pval">5</span></label>
-<input type="range" id="pointSize" min="1" max="30" value="5" oninput="pval.innerText=this.value;updateStyle()">
+
+<div class="slider-container" data-target="pointSize" data-min="1" data-max="30" data-value="5">
+<div class="slider-progress"></div>
+<div class="slider-thumb-glass"></div>
+</div>
+
 <label>Warna Titik</label>
 <input type="color" id="pointColor" value="#0000ff" oninput="updateStyle()">
 </div>
@@ -134,81 +171,137 @@ input[type="range"],input[type="color"]{
 </div>
 
 <div id="divider"></div>
+
+<div id="mapWrap">
+<div id="mapStyle">
+<label><input type="radio" name="bm" checked onchange="setMap('osm')"> OSM</label>
+<label><input type="radio" name="bm" onchange="setMap('sat')"> Satellite</label>
+</div>
 <div id="map"></div>
+</div>
 
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
 
-/* ===== BASEMAPS ===== */
-const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM'});
-const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri Satellite'});
+const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+const map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
+const layer=L.layerGroup().addTo(map);
 
-var map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
-L.control.layers({"OSM":osm,"Satellite":esri}).addTo(map);
+map.createPane('pointsPane');
+map.getPane('pointsPane').style.zIndex = 650;
+map.getPane('pointsPane').style.pointerEvents = 'auto';
 
-let layer=L.layerGroup().addTo(map);
-let poly=null,points=[],coords=[];
+let poly=null, points=[], coords=[];
 
-/* ===== SPLITTER ===== */
-let dragging=false;
-divider.onmousedown=()=>dragging=true;
-window.onmouseup=()=>dragging=false;
+function setMap(t){
+  map.eachLayer(l=>map.removeLayer(l));
+  (t==="sat"?esri:osm).addTo(map);
+  layer.addTo(map);
+}
+
+const divider=document.getElementById("divider");
+const left=document.getElementById("left");
+let resizing=false;
+
+divider.onmousedown=()=>{resizing=true};
+window.onmouseup=()=>{resizing=false};
+
 window.onmousemove=e=>{
- if(!dragging)return;
- left.style.width=Math.max(320,e.clientX)+"px";
- map.invalidateSize();
+  if(!resizing) return;
+  const w=Math.max(300,Math.min(600,e.clientX));
+  left.style.width=w+"px";
+  map.invalidateSize();
 };
 
-/* ==================== */
 function clean(t){return t.match(/[-\d.,]+/)[0].replace(',','.');}
 
 function process(){
- let c=1,out=[];
- input.value.split('\n').forEach(l=>{
-  l=l.trim(); if(!l) return;
-  let p=l.split(/\s+/);
-  out.push(c+"."+clean(p[1])+","+clean(p[0])); c++;
- });
- output.value=out.join("\n");
+  let c=1, out=[];
+  input.value.split('\n').forEach(l=>{
+    if(!l) return;
+    let p=l.trim().split(/\s+/);
+    out.push(c+"."+clean(p[1])+","+clean(p[0])); c++;
+  });
+  output.value = out.join("\n");
 }
 
 function plot(){
- layer.clearLayers(); coords=[]; points=[];
- output.value.split('\n').forEach(l=>{
-  l=l.replace(/^\d+\./,''); if(!l) return;
-  let p=l.split(','); coords.push([+p[0],+p[1]]);
- });
- if(coords.length<2) return;
+  coords=[];
+  output.value.split('\n').forEach(l=>{
+    l=l.replace(/^\d+\./,'');
+    if(!l) return;
+    let p=l.split(',');
+    coords.push([+p[0],+p[1]]);
+  });
 
- poly=L.polyline(coords).addTo(layer);
- coords.forEach(c=>points.push(L.circleMarker(c).addTo(layer)));
- L.marker(coords[0]).addTo(layer).bindPopup("START");
- L.marker(coords.at(-1)).addTo(layer).bindPopup("STOP");
- map.fitBounds(poly.getBounds());
- updateStyle();
+  layer.clearLayers(); points=[];
+  poly = L.polyline(coords).addTo(layer);
+
+  coords.forEach(c=>{
+    points.push(
+      L.circleMarker(c, {pane:'pointsPane'}).addTo(layer)
+    );
+  });
+
+  map.fitBounds(poly.getBounds());
+  updateStyle();
 }
 
 function updateStyle(){
- if(!poly)return;
- poly.setStyle({color:color.value,weight:+weight.value});
- points.forEach(p=>{
-  if(showPoints.checked){
-   p.setStyle({radius:+pointSize.value,color:pointColor.value,fillColor:pointColor.value,fillOpacity:1});
-   if(!layer.hasLayer(p))layer.addLayer(p);
-  } else layer.removeLayer(p);
- });
+  if(!poly) return;
+
+  if(showPath.checked){
+    poly.setStyle({color: color.value, weight: +weight.value});
+    layer.addLayer(poly);
+  } else layer.removeLayer(poly);
+
+  points.forEach(p=>{
+    if(showPoints.checked){
+      p.setRadius(+pointSize.value);
+      p.setStyle({color: pointColor.value, fillColor: pointColor.value, fillOpacity: 1});
+      layer.addLayer(p);
+    } else layer.removeLayer(p);
+  });
 }
 
 function clearAll(){
- layer.clearLayers();
- input.value=output.value="";
- poly=null;
- points=[];
- coords=[];
- map.setView([-6.2,106.8],13);
+  layer.clearLayers(); poly=null; points=[]; coords=[];
+  input.value=""; output.value="";
+  map.setView([-6.2,106.8],13);
 }
+
+/* ====== SLIDER ====== */
+document.querySelectorAll('.slider-container').forEach(s=>{
+  const thumb = s.querySelector('.slider-thumb-glass');
+  const prog = s.querySelector('.slider-progress');
+  const min = +s.dataset.min, max = +s.dataset.max;
+  let val = +s.dataset.value;
+
+  function render(){
+    const pct = (val - min) / (max - min) * 100;
+    prog.style.width = pct + "%";
+    thumb.style.left = pct + "%";
+    if(s.dataset.target==="weight"){ window.weight={value:val}; wval.innerText=val; }
+    if(s.dataset.target==="pointSize"){ window.pointSize={value:val}; pval.innerText=val; }
+    updateStyle();
+  }
+  render();
+
+  let drag=false;
+  thumb.onmousedown=()=>drag=true;
+  window.addEventListener("mouseup",()=>drag=false);
+  window.addEventListener("mousemove", e=>{
+    if(!drag) return;
+    const r = s.getBoundingClientRect();
+    let x = Math.min(Math.max(0, e.clientX - r.left), r.width);
+    val = Math.round(min + (x / r.width) * (max - min));
+    render();
+  });
+});
 
 </script>
 </body>
