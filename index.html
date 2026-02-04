@@ -141,28 +141,28 @@ transition:.15s;
 <button onclick="plot()">Plot</button>
 
 <div class="card">
-<label><input type="checkbox" id="showPath" checked onchange="updateStyle()"> Tampilkan Jalur</label>
-<label>Ketebalan Jalur: <span id="wval">4</span></label>
+<label><input type="checkbox" id="showPath" checked onchange="updateStyle()"> Show The Line</label>
+<label>The Thickness of the Line: <span id="wval">4</span></label>
 
 <div class="slider-container" data-target="weight" data-min="1" data-max="60" data-value="4">
 <div class="slider-progress"></div>
 <div class="slider-thumb-glass"></div>
 </div>
 
-<label>Warna Jalur</label>
+<label>Line Color</label>
 <input type="color" id="color" value="#ff0000" oninput="updateStyle()">
 </div>
 
 <div class="card">
-<label><input type="checkbox" id="showPoints" checked onchange="updateStyle()"> Tampilkan Titik</label>
-<label>Ukuran Titik: <span id="pval">5</span></label>
+<label><input type="checkbox" id="showPoints" checked onchange="updateStyle()"> Show Dot Point</label>
+<label>Dot Size: <span id="pval">5</span></label>
 
 <div class="slider-container" data-target="pointSize" data-min="1" data-max="30" data-value="5">
 <div class="slider-progress"></div>
 <div class="slider-thumb-glass"></div>
 </div>
 
-<label>Warna Titik</label>
+<label>Dot Color</label>
 <input type="color" id="pointColor" value="#0000ff" oninput="updateStyle()">
 </div>
 
@@ -186,13 +186,15 @@ transition:.15s;
 
 <script>
 
+/* ====== PERBAIKAN UNTUK TITIK SELALU DI ATAS ====== */
 const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
 const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
 const map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
 const layer=L.layerGroup().addTo(map);
 
+// buat pane khusus untuk titik
 map.createPane('pointsPane');
-map.getPane('pointsPane').style.zIndex = 650;
+map.getPane('pointsPane').style.zIndex = 650; // lebih tinggi dari polyline default
 map.getPane('pointsPane').style.pointerEvents = 'auto';
 
 let poly=null, points=[], coords=[];
