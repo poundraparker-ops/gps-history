@@ -507,14 +507,21 @@ function plot(){
 
   // START & FINISH MARKER
   if(coords.length){
-    L.marker(coords[0],{icon:startIcon}).addTo(layer);
-    L.marker(coords[coords.length-1],{icon:finishIcon}).addTo(layer);
+    L.marker(coords[0],{
+      icon:startIcon,
+      zIndexOffset:1000
+    }).addTo(layer);
+
+    L.marker(coords[coords.length-1],{
+      icon:finishIcon,
+      zIndexOffset:1000
+    }).addTo(layer);
   }
 
   // DOT POINTS (MID ONLY)
   coords.forEach((c,i)=>{
     if(i===0 || i===coords.length-1) return;
-    points.push(L.circleMarker(c,{pane:'pointsPane'}).addTo(layer));
+    points.push(L.circleMarker(c).addTo(layer));
   });
 
   map.fitBounds(poly.getBounds());
