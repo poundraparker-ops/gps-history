@@ -300,6 +300,11 @@ h3{
 <div id="mapStyle">
 <label><input type="radio" name="bm" checked onchange="setMap('osm')"> OSM</label>
 <label><input type="radio" name="bm" onchange="setMap('sat')"> Satellite</label>
+<label><input type="radio" name="bm" onchange="setMap('hybrid')"> Hybrid</label>
+<label><input type="radio" name="bm" onchange="setMap('voyager')"> Voyager</label>
+<label><input type="radio" name="bm" onchange="setMap('light')"> Light</label>
+<label><input type="radio" name="bm" onchange="setMap('dark')"> Dark</label>
+<label><input type="radio" name="bm" onchange="setMap('topo')"> Topo</label>
 </div>
 <div id="map"></div>
 </div>
@@ -317,8 +322,53 @@ let sheetRows = [];
 
 /* ===== MAP & EXISTING LOGIC (TIDAK DIUBAH) ===== */
 
-const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
-const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+
+const esri = L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+);
+
+// OSM Labels (roads + place names for hybrid)
+const osmLabels = L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{ opacity: 0.6 }
+);
+
+// CARTO Light
+const cartoLight = L.tileLayer(
+'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+);
+
+// CARTO Dark
+const cartoDark = L.tileLayer(
+'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+);
+
+// OpenTopoMap
+const topo = L.tileLayer(
+'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
+);
+
+// Carto Voyager (Google-like roads)
+const voyager = L.tileLayer(
+'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+);
+
+// Stamen Terrain
+const terrain = L.tileLayer(
+  'https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}.png',
+  {
+    subdomains: 'abcd',
+    attribution: 'Map tiles by Stamen Design, CC BY 3.0 — OSM'
+  }
+);
+
+
+// ESRI Hybrid (satellite + labels)
+const esriLabels = L.tileLayer(
+'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+);
+
 const map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
 const layer=L.layerGroup().addTo(map);
 
@@ -330,7 +380,24 @@ let poly=null, points=[], coords=[];
 
 function setMap(t){
   map.eachLayer(l=>map.removeLayer(l));
-  (t==="sat"?esri:osm).addTo(map);
+
+  if(t==="osm") osm.addTo(map);
+
+  if(t==="sat") esri.addTo(map);
+
+  if(t==="hybrid"){
+    esri.addTo(map);
+    osmLabels.addTo(map);
+  }
+
+  if(t==="voyager") voyager.addTo(map);
+
+  if(t==="light") cartoLight.addTo(map);
+
+  if(t==="dark") cartoDark.addTo(map);
+
+  if(t==="topo") topo.addTo(map);
+
   layer.addTo(map);
 }
 
@@ -366,6 +433,10 @@ function clean(v){
 
 
 function process(){
+
+  // GUARD: jangan override hasil CSV/XLSX
+  if(!input.value.trim()) return;
+
   let c=1,out=[];
   input.value.split('\n').forEach(l=>{
     if(!l) return;
