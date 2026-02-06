@@ -219,6 +219,26 @@ h3{
   text-overflow:ellipsis;
 }
 
+#pickerCard{
+  grid-template-columns: 120px 1fr;
+  row-gap:6px;
+  column-gap:8px;
+  align-items:center;
+}
+
+#pickerCard label{
+  text-align:left;
+}
+
+#pickerCard select{
+  width:100%;
+}
+
+#sheetRow,
+#colRow{
+  display:contents;
+}
+
 </style>
 
 </head>
@@ -249,14 +269,19 @@ h3{
 </div>
 
 <div class="card" id="pickerCard" style="display:none">
-  <label>Sheet</label><br>
-  <select id="sheetSelect"></select><br>
 
-  <label>Latitude Column</label>
-  <select id="latSelect"></select>
+  <div id="sheetRow">
+    <label>Sheet</label>
+    <select id="sheetSelect"></select>
+  </div>
 
-  <label>Longitude Column</label>
-  <select id="lonSelect"></select>
+  <div id="colRow">
+    <label>Latitude</label>
+    <select id="latSelect"></select>
+
+    <label>Longitude</label>
+    <select id="lonSelect"></select>
+  </div>
 
 </div>
 
@@ -319,6 +344,7 @@ h3{
 
 let workbook = null;
 let sheetRows = [];
+let forcePicker = false;
 
 /* ===== MAP & EXISTING LOGIC (TIDAK DIUBAH) ===== */
 
@@ -372,9 +398,14 @@ const esriLabels = L.tileLayer(
 const map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
 const layer=L.layerGroup().addTo(map);
 
-map.createPane('pointsPane');
-map.getPane('pointsPane').style.zIndex = 650;
-map.getPane('pointsPane').style.pointerEvents = 'auto';
+// PANES
+map.createPane('linePane');
+map.createPane('pointPane');
+map.createPane('flagPane');
+
+map.getPane('linePane').style.zIndex = 400;
+map.getPane('pointPane').style.zIndex = 500;
+map.getPane('flagPane').style.zIndex = 600;
 
 let poly=null, points=[], coords=[];
 
@@ -503,25 +534,30 @@ function plot(){
   layer.clearLayers(); 
   points=[];
 
-  poly=L.polyline(coords).addTo(layer);
+  poly=L.polyline(coords,{
+    pane:"linePane"
+  }).addTo(layer);
 
   // START & FINISH MARKER
   if(coords.length){
     L.marker(coords[0],{
       icon:startIcon,
-      zIndexOffset:1000
+      pane:"flagPane"
     }).addTo(layer);
 
     L.marker(coords[coords.length-1],{
       icon:finishIcon,
-      zIndexOffset:1000
+      pane:"flagPane"
     }).addTo(layer);
   }
 
-  // DOT POINTS (MID ONLY)
-  coords.forEach((c,i)=>{
-    if(i===0 || i===coords.length-1) return;
-    points.push(L.circleMarker(c).addTo(layer));
+  // DOT POINTS (ALL – SAME COORDS AS POLYLINE)
+  coords.forEach(c=>{
+    points.push(
+      L.circleMarker(c,{
+        pane:"pointPane"
+      }).addTo(layer)
+    );
   });
 
   map.fitBounds(poly.getBounds());
@@ -565,31 +601,58 @@ function clearAll(){
 /* ===== CSV PARSER (BARU) ===== */
 
 function parseCSV(file){
-  Papa.parse(file,{
-    header:true,
-    skipEmptyLines:true,
-    complete:r=>{
+ Papa.parse(file,{
+  header:true,
+  skipEmptyLines:true,
+  complete:r=>{
 
-      const keys = Object.keys(r.data[0]||{}).map(k=>k.toLowerCase());
+   const headers = Object.keys(r.data[0]||{});
 
-      const latKey = keys.find(k=>k.includes("lat"));
-      const lonKey = keys.find(k=>k.includes("lon") || k.includes("lng"));
+   const latKey = headers.find(h=>h.toLowerCase().includes("lat"));
+   const lonKey = headers.find(h=>h.toLowerCase().includes("lon") || h.toLowerCase().includes("lng"));
 
-      let out=[],c=1;
+   // AUTO DETECT OK
+   if(latKey && lonKey){
 
-      r.data.forEach(row=>{
-        const lat = normalizeCoord(row[latKey]);
-        const lon = normalizeCoord(row[lonKey]);
+     pickerCard.style.display="none";
 
-        if(!lat || !lon) return;
+     let out=[],c=1;
 
-        out.push(`${c}.${lat},${lon}`);
-        c++;
-      });
+     r.data.forEach(row=>{
+       const lat=normalizeCoord(row[latKey]);
+       const lon=normalizeCoord(row[lonKey]);
+       if(isNaN(lat)||isNaN(lon)) return;
+       out.push(`${c}.${lat},${lon}`);
+       c++;
+     });
 
-      output.value=out.join("\n");
-    }
-  });
+     output.value=out.join("\n");
+     return;
+   }
+
+   // AUTO FAIL → tampil picker
+   pickerCard.style.display="grid";
+
+   latSelect.innerHTML=headers.map(h=>`<option>${h}</option>`).join("");
+   lonSelect.innerHTML=headers.map(h=>`<option>${h}</option>`).join("");
+
+   function run(){
+     let out=[],c=1;
+     r.data.forEach(row=>{
+       const lat=normalizeCoord(row[latSelect.value]);
+       const lon=normalizeCoord(row[lonSelect.value]);
+       if(isNaN(lat)||isNaN(lon)) return;
+       out.push(`${c}.${lat},${lon}`);
+       c++;
+     });
+     output.value=out.join("\n");
+   }
+
+   latSelect.onchange=run;
+   lonSelect.onchange=run;
+   run();
+  }
+ });
 }
 
 csvFile.onchange=e=>{
@@ -625,12 +688,15 @@ function parseXLSX(file){
     const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
     workbook=wb;
 
-    sheetSelect.innerHTML="";
+    forcePicker = wb.SheetNames.length > 1;
+
+    sheetRow.style.display = forcePicker ? "contents" : "none";
+
     wb.SheetNames.forEach(n=>{
       sheetSelect.innerHTML+=`<option>${n}</option>`;
     });
 
-    pickerCard.style.display="block";
+    pickerCard.style.display="grid";
     loadSheet();
   };
 
@@ -663,13 +729,32 @@ function loadSheet(){
   });
 
   // auto detect
+  let foundLat=false,foundLon=false;
+
   Object.keys(sheetRows[0]).forEach((k,i)=>{
-    if(k.toLowerCase().includes("lat")) latSelect.selectedIndex=i;
-    if(k.toLowerCase().includes("lon")) lonSelect.selectedIndex=i;
+    if(k.toLowerCase().includes("lat")){
+      latSelect.selectedIndex=i;
+      foundLat=true;
+    }
+    if(k.toLowerCase().includes("lon")){
+      lonSelect.selectedIndex=i;
+      foundLon=true;
+    }
   });
 
+  if(foundLat && foundLon){
+
+    // kalau XLSX punya lebih dari 1 sheet → picker tetap tampil
+    if(forcePicker){
+      pickerCard.style.display="grid";
+    }else{
+      pickerCard.style.display="none";
+    }
+
+  }
+
   processSheet();
-}
+  }
 
 latSelect.onchange = processSheet;
 lonSelect.onchange = processSheet;
