@@ -239,6 +239,31 @@ h3{
   display:contents;
 }
 
+#loadingOverlay{
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,.6);
+  backdrop-filter:blur(4px);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:99999;
+}
+
+#loadingOverlay.active{
+  display:flex;
+}
+
+#loadingOverlay div{
+  font-size:22px;
+  font-weight:700;
+  color:white;
+  padding:20px 32px;
+  background:rgba(0,0,0,.4);
+  border-radius:14px;
+}
+
+
 </style>
 
 </head>
@@ -248,6 +273,11 @@ h3{
 <div id="dropOverlay">
   <div>DROP CSV FILE HERE</div>
 </div>
+
+<div id="loadingOverlay">
+  <div>Loading file...</div>
+</div>
+
 
 <div id="app">
 
@@ -342,6 +372,16 @@ h3{
 
 <script>
 
+const loadingOverlay = document.getElementById("loadingOverlay");
+
+function showLoading(){
+  loadingOverlay.classList.add("active");
+}
+
+function hideLoading(){
+  loadingOverlay.classList.remove("active");
+}
+
 let workbook = null;
 let sheetRows = [];
 let forcePicker = false;
@@ -396,6 +436,8 @@ const esriLabels = L.tileLayer(
 );
 
 const map=L.map('map',{center:[-6.2,106.8],zoom:13,layers:[osm]});
+
+
 const layer=L.layerGroup().addTo(map);
 
 // PANES
@@ -406,6 +448,8 @@ map.createPane('flagPane');
 map.getPane('linePane').style.zIndex = 400;
 map.getPane('pointPane').style.zIndex = 500;
 map.getPane('flagPane').style.zIndex = 600;
+
+let activePopup = null;
 
 /* ===== LOGIC KERNEL SESUAI FLOW ===== */
 
@@ -541,15 +585,73 @@ function kernelRender(){
 
     kernel.lines.push(line);
 
-    // gambar titik
-    seg.forEach(p=>{
-      const dot = L.circleMarker(
-        [p.lat,p.lon],
-        { pane:"pointPane" }
-      ).addTo(layer);
+// gambar titik + tooltip
+seg.forEach(p=>{
+
+  const dot = L.circleMarker(
+    [p.lat,p.lon],
+    { pane:"pointPane" }
+  ).addTo(layer);
+
+      // format waktu
+      let timeStr = "-";
+      if(p.time){
+        const d = new Date(p.time);
+        timeStr = d.toISOString().replace("T"," ").substring(0,19);
+      }
+
+      dot.bindTooltip(
+        `
+        <div style="font-size:11px">
+          <b>Latitude:</b> ${p.lat.toFixed(6)}<br>
+          <b>Longitude:</b> ${p.lon.toFixed(6)}<br>
+          <b>Time:</b> ${timeStr}<br>
+          <b>Status:</b> ${p.status || "-"}
+        </div>
+        `,
+        {
+          direction: "top",
+          offset: [0,-5],
+          opacity: 0.95
+        }
+      );
+
+      dot.on("click", function(e){
+
+        e.originalEvent.stopPropagation();
+
+        if(activePopup){
+          map.closePopup(activePopup);
+        }
+
+        let timeStr = "-";
+        if(p.time){
+          const d = new Date(p.time);
+          timeStr = d.toISOString().replace("T"," ").substring(0,19);
+        }
+
+        activePopup = L.popup({
+          closeButton:false,
+          autoClose:true,     // <-- ubah
+          closeOnClick:true,  // <-- ubah
+          offset:[0,-10]
+        })
+        .setLatLng([p.lat,p.lon])
+        .setContent(`
+          <div style="font-size:12px">
+            <b>Latitude:</b> ${p.lat.toFixed(6)}<br>
+            <b>Longitude:</b> ${p.lon.toFixed(6)}<br>
+            <b>Time:</b> ${timeStr}<br>
+            <b>Status:</b> ${p.status || "-"}
+          </div>
+        `)
+        .openOn(map);
+
+      });
 
       kernel.points.push(dot);
     });
+
   });
 
   // start marker = titik pertama segmen pertama
@@ -776,6 +878,7 @@ function clearAll(){
 /* ===== CSV PARSER (BARU) ===== */
 
 function parseCSV(file){
+ showLoading();
  Papa.parse(file,{
   header:true,
   skipEmptyLines:true,
@@ -854,6 +957,7 @@ function parseCSV(file){
    latSelect.onchange=run;
    lonSelect.onchange=run;
    run();
+   hideLoading();
   }
  });
 }
@@ -885,6 +989,7 @@ csvFile.onchange = e => {
 };
 
 function parseXLSX(file){
+  showLoading();
   const reader=new FileReader();
 
   reader.onload=e=>{
@@ -906,6 +1011,7 @@ function parseXLSX(file){
 
     pickerCard.style.display="grid";
     loadSheet();
+    hideLoading();
   };
 
   reader.readAsArrayBuffer(file);
