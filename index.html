@@ -407,7 +407,192 @@ map.getPane('linePane').style.zIndex = 400;
 map.getPane('pointPane').style.zIndex = 500;
 map.getPane('flagPane').style.zIndex = 600;
 
-let poly=null, points=[], coords=[];
+/* ===== LOGIC KERNEL SESUAI FLOW ===== */
+
+const kernel = {
+  rawCoords: [],          // data mentah
+  visibleSegments: [],    // hasil akhir untuk digambar
+  lines: [],
+  points: [],
+  startMarker: null,
+  endMarker: null,
+
+  // ===== STATEFUL VARIABLE =====
+  lastPacketTime: null,
+  lastStatus: null,       // "realtime" | "buffer"
+  skipLocationTime: null
+};
+
+function distanceMeter(a, b){
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI/180;
+  const dLon = (b.lon - a.lon) * Math.PI/180;
+  const la1 = a.lat * Math.PI/180;
+  const la2 = b.lat * Math.PI/180;
+
+  const x = Math.sin(dLat/2)**2 +
+            Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function deduplicateCoords(coords, timeThreshold = 2000) {
+  if (!coords.length) return [];
+
+  const result = [];
+  let prev = null;
+
+  coords.forEach(p => {
+    if (!prev) {
+      result.push(p);
+      prev = p;
+      return;
+    }
+
+    const sameCoord =
+      Math.abs(p.lat - prev.lat) < 1e-6 &&
+      Math.abs(p.lon - prev.lon) < 1e-6;
+
+    const timeDiff = Math.abs(p.time - prev.time);
+
+    // === CASE 1: buffer vs realtime di waktu sama ===
+    if (sameCoord && timeDiff <= timeThreshold) {
+      // realtime menang
+      if (prev.status === "buffer" && p.status === "realtime") {
+        result[result.length - 1] = p;
+        prev = p;
+        return;
+      }
+      // buffer kalah
+      if (prev.status === "realtime" && p.status === "buffer") {
+        return;
+      }
+      // dua-duanya sama (buffer-buffer / realtime-realtime)
+      return;
+    }
+
+    result.push(p);
+    prev = p;
+  });
+
+  return result;
+}
+
+function kernelProcess(){
+
+  kernel.visibleSegments = [];
+  let segment = [];
+  let prev = null;
+
+  kernel.rawCoords.forEach(p => {
+
+    // 1. BUFFER TIDAK DIGAMBAR
+    if(p.status === "buffer"){
+      prev = p;
+      if(segment.length > 1){
+        kernel.visibleSegments.push(segment);
+        segment = [];
+      }
+      return;
+    }
+
+    if(prev){
+      const timeGap = p.time - prev.time;
+      const dist = distanceMeter(prev, p);
+
+      // 2. PUTUS SEGMENT JIKA TIME GAP
+      if(timeGap > kernel.maxTimeGap){
+        if(segment.length > 1) kernel.visibleSegments.push(segment);
+        segment = [];
+      }
+
+      // 3. PUTUS SEGMENT JIKA LOMPAT JARAK
+      else if(dist > kernel.maxJumpMeter){
+        if(segment.length > 1) kernel.visibleSegments.push(segment);
+        segment = [];
+      }
+    }
+
+    segment.push(p);
+    prev = p;
+  });
+
+  if(segment.length > 1){
+    kernel.visibleSegments.push(segment);
+  }
+}
+
+function kernelRender(){
+  layer.clearLayers();
+
+  kernel.lines = [];
+  kernel.points = [];
+  kernel.startMarker = null;
+  kernel.endMarker = null;
+
+  if(!kernel.visibleSegments.length) return;
+
+  // gambar garis per segmen
+  kernel.visibleSegments.forEach(seg=>{
+    const line = L.polyline(
+      seg.map(p=>[p.lat,p.lon]),
+      { pane:"linePane" }
+    ).addTo(layer);
+
+    kernel.lines.push(line);
+
+    // gambar titik
+    seg.forEach(p=>{
+      const dot = L.circleMarker(
+        [p.lat,p.lon],
+        { pane:"pointPane" }
+      ).addTo(layer);
+
+      kernel.points.push(dot);
+    });
+  });
+
+  // start marker = titik pertama segmen pertama
+  const first = kernel.visibleSegments[0][0];
+  kernel.startMarker = L.marker(
+    [first.lat, first.lon],
+    { icon:startIcon, pane:"flagPane" }
+  ).addTo(layer);
+
+  // end marker = titik terakhir segmen terakhir
+  const lastSeg = kernel.visibleSegments[kernel.visibleSegments.length-1];
+  const last = lastSeg[lastSeg.length-1];
+  kernel.endMarker = L.marker(
+    [last.lat, last.lon],
+    { icon:finishIcon, pane:"flagPane" }
+  ).addTo(layer);
+
+  // zoom map
+  const all = kernel.visibleSegments.flat().map(p=>[p.lat,p.lon]);
+  map.fitBounds(all);
+}
+
+function kernelApplyStyle() {
+
+  kernel.lines.forEach(line=>{
+    line.setStyle({
+      color: color.value,
+      weight: +window.weight.value,
+      opacity: showPath.checked ? 1 : 0
+    });
+  });
+
+  kernel.points.forEach(p=>{
+    p.setRadius(+window.pointSize.value);
+    p.setStyle({
+      color: pointColor.value,
+      fillColor: pointColor.value,
+      fillOpacity: showPoints.checked ? 1 : 0,
+      opacity: showPoints.checked ? 1 : 0
+    });
+  });
+
+}
 
 function setMap(t){
   map.eachLayer(l=>map.removeLayer(l));
@@ -446,17 +631,20 @@ window.onmousemove=e=>{
 };
 
 function normalizeCoord(v){
-  if(!v) return null;
+  if(v === undefined || v === null) return NaN;
+
+  if(typeof v === "number") return v;
 
   v = v.toString().trim();
 
-  const parts = v.split(".");
-  if(parts.length === 3){
-    return parseFloat(parts[0] + "." + parts[1] + parts[2]);
-  }
+  if(v === "") return NaN;
 
-  return parseFloat(v.replace(",","."));
+  // ganti semua koma jadi titik
+  v = v.replace(/,/g,".");
+
+  return parseFloat(v);
 }
+
 
 function clean(v){
   return normalizeCoord(v);
@@ -523,69 +711,50 @@ const finishIcon = L.divIcon({
 });
 
 function plot(){
-  coords=[];
-  output.value.split('\n').forEach(l=>{
-    l=l.replace(/^\d+\./,'');
-    if(!l) return;
-    let p=l.split(',');
-    coords.push([+p[0],+p[1]]);
-  });
 
-  layer.clearLayers(); 
-  points=[];
+  // fallback: ambil dari textarea output kalau kernel kosong
+  if(!kernel.rawCoords.length && output.value.trim()){
+    kernel.rawCoords = [];
 
-  poly=L.polyline(coords,{
-    pane:"linePane"
-  }).addTo(layer);
+    output.value.split('\n').forEach(l=>{
+      l = l.replace(/^\d+\./,'');
+      if(!l) return;
+      const [lat,lon] = l.split(',').map(Number);
+      if(
+        isNaN(lat) || 
+        isNaN(lon) ||
+        lat < -90 || lat > 90 ||
+        lon < -180 || lon > 180 ||
+        (lat === 0 && lon === 0)
+      ) return;
 
-  // START & FINISH MARKER
-  if(coords.length){
-    L.marker(coords[0],{
-      icon:startIcon,
-      pane:"flagPane"
-    }).addTo(layer);
 
-    L.marker(coords[coords.length-1],{
-      icon:finishIcon,
-      pane:"flagPane"
-    }).addTo(layer);
+      kernel.rawCoords.push({
+        lat,
+        lon,
+        time: Date.now() // dummy time (manual input)
+      });
+    });
   }
 
-  // DOT POINTS (ALL – SAME COORDS AS POLYLINE)
-  coords.forEach(c=>{
-    points.push(
-      L.circleMarker(c,{
-        pane:"pointPane"
-      }).addTo(layer)
-    );
-  });
+  if(!kernel.rawCoords.length){
+    alert("No data to plot");
+    return;
+  }
 
-  map.fitBounds(poly.getBounds());
-  updateStyle();
+  kernel.rawCoords = deduplicateCoords(kernel.rawCoords);
+  kernelProcess();
+  kernelRender();
+  kernelApplyStyle();
 }
 
-function updateStyle(){
-  if(!poly) return;
-
-  if(showPath.checked){
-    poly.setStyle({color:color.value,weight:+weight.value});
-    layer.addLayer(poly);
-  }else layer.removeLayer(poly);
-
-  points.forEach(p=>{
-    if(showPoints.checked){
-      p.setRadius(+pointSize.value);
-      p.setStyle({color:pointColor.value,fillColor:pointColor.value,fillOpacity:1});
-      layer.addLayer(p);
-    }else layer.removeLayer(p);
-  });
+function updateStyle() {
+  kernelApplyStyle();
 }
+
 
 function clearAll(){
   layer.clearLayers();
-  poly=null;
-  points=[];
-  coords=[];
 
   input.value="";
   output.value="";
@@ -595,8 +764,14 @@ function clearAll(){
   pickerCard.style.display="none";
 
   map.setView([-6.2,106.8],13);
-}
 
+  kernel.rawCoords = [];
+  kernel.visibleSegments = [];
+  kernel.lines = [];
+  kernel.points = [];
+  kernel.startMarker = null;
+  kernel.endMarker = null;
+}
 
 /* ===== CSV PARSER (BARU) ===== */
 
@@ -607,9 +782,37 @@ function parseCSV(file){
   complete:r=>{
 
    const headers = Object.keys(r.data[0]||{});
-
+    // === SORT BY received_on (UTC) ===
+    r.data.sort((a,b)=>{
+      const ta = new Date(a.packet_location || a.time || a.received_on).getTime();
+      const tb = new Date(b.packet_location || b.time || b.received_on).getTime();
+      return ta - tb;
+    });
    const latKey = headers.find(h=>h.toLowerCase().includes("lat"));
    const lonKey = headers.find(h=>h.toLowerCase().includes("lon") || h.toLowerCase().includes("lng"));
+    kernel.rawCoords = [];
+
+    r.data.forEach(row=>{
+      const lat = normalizeCoord(row[latKey]);
+      const lon = normalizeCoord(row[lonKey]);
+
+      const eventTime = new Date(
+        row.packet_location || row.time || row.received_on
+      ).getTime();
+
+      if(isNaN(lat)||isNaN(lon)) return;
+
+      let time = isNaN(eventTime) ? Date.now() : eventTime;
+
+
+      kernel.rawCoords.push({
+        lat,
+        lon,
+        time,
+        status: row.status_data === "0704" ? "buffer" : "realtime"
+      });
+
+    });
 
    // AUTO DETECT OK
    if(latKey && lonKey){
@@ -692,9 +895,14 @@ function parseXLSX(file){
 
     sheetRow.style.display = forcePicker ? "contents" : "none";
 
+    // RESET dulu
+    sheetSelect.innerHTML = "";
+
+    // baru isi ulang
     wb.SheetNames.forEach(n=>{
-      sheetSelect.innerHTML+=`<option>${n}</option>`;
+      sheetSelect.innerHTML += `<option>${n}</option>`;
     });
+
 
     pickerCard.style.display="grid";
     loadSheet();
@@ -759,25 +967,51 @@ function loadSheet(){
 latSelect.onchange = processSheet;
 lonSelect.onchange = processSheet;
 
-
 function processSheet(){
 
   const latCol = latSelect.value;
   const lonCol = lonSelect.value;
 
-  let out=[],c=1;
+  kernel.rawCoords = [];
+  let out = [], c = 1;
 
-  sheetRows.forEach(r=>{
-    const lat = normalizeCoord(r[latCol]);
-    const lon = normalizeCoord(r[lonCol]);
+  sheetRows
+    .map(r => {
+      const lat = normalizeCoord(r[latCol]);
+      const lon = normalizeCoord(r[lonCol]);
 
-    if(isNaN(lat)||isNaN(lon)) return;
+      let rawTime = r.packet_location || r.time || r.received_on;
 
-    out.push(`${c}.${lat},${lon}`);
-    c++;
-  });
+      let time = rawTime ? new Date(rawTime).getTime() : Date.now();
 
-  output.value=out.join("\n");
+      if (
+        isNaN(lat) ||
+        isNaN(lon) ||
+        lat < -90 || lat > 90 ||
+        lon < -180 || lon > 180 ||
+        (lat === 0 && lon === 0)
+      ) return null;
+
+
+      if (isNaN(time)) time = Date.now();
+
+
+      return {
+        lat,
+        lon,
+        time,
+        status: r.status_data === "0704" ? "buffer" : "realtime"
+      };
+    })
+    .filter(Boolean)
+    .sort((a,b)=>a.time-b.time)
+    .forEach(p=>{
+      kernel.rawCoords.push(p);
+      out.push(`${c}.${p.lat},${p.lon}`);
+      c++;
+    });
+
+  output.value = out.join("\n");
 }
 
 
