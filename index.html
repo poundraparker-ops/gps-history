@@ -880,6 +880,10 @@ function clearAll(){
 function parseCSV(file){
  showLoading();
  Papa.parse(file,{
+  error: function(){
+  hideLoading();
+  alert("Failed to parse CSV");
+  },
   header:true,
   skipEmptyLines:true,
   complete:r=>{
@@ -918,23 +922,25 @@ function parseCSV(file){
     });
 
    // AUTO DETECT OK
-   if(latKey && lonKey){
+  if(latKey && lonKey){
 
-     pickerCard.style.display="none";
+    pickerCard.style.display="none";
 
-     let out=[],c=1;
+    let out=[],c=1;
 
-     r.data.forEach(row=>{
-       const lat=normalizeCoord(row[latKey]);
-       const lon=normalizeCoord(row[lonKey]);
-       if(isNaN(lat)||isNaN(lon)) return;
-       out.push(`${c}.${lat},${lon}`);
-       c++;
-     });
+    r.data.forEach(row=>{
+      const lat=normalizeCoord(row[latKey]);
+      const lon=normalizeCoord(row[lonKey]);
+      if(isNaN(lat)||isNaN(lon)) return;
+      out.push(`${c}.${lat},${lon}`);
+      c++;
+    });
 
-     output.value=out.join("\n");
-     return;
-   }
+    output.value=out.join("\n");
+
+    hideLoading();   // <-- TAMBAHKAN DI SINI
+    return;
+  }
 
    // AUTO FAIL → tampil picker
    pickerCard.style.display="grid";
@@ -992,27 +998,33 @@ function parseXLSX(file){
   showLoading();
   const reader=new FileReader();
 
-  reader.onload=e=>{
-    const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
-    workbook=wb;
+  reader.onload = e => {
 
-    forcePicker = wb.SheetNames.length > 1;
+    try {
 
-    sheetRow.style.display = forcePicker ? "contents" : "none";
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+      workbook = wb;
 
-    // RESET dulu
-    sheetSelect.innerHTML = "";
+      forcePicker = wb.SheetNames.length > 1;
 
-    // baru isi ulang
-    wb.SheetNames.forEach(n=>{
-      sheetSelect.innerHTML += `<option>${n}</option>`;
-    });
+      sheetRow.style.display = forcePicker ? "contents" : "none";
 
+      sheetSelect.innerHTML = "";
+      wb.SheetNames.forEach(n=>{
+        sheetSelect.innerHTML += `<option>${n}</option>`;
+      });
 
-    pickerCard.style.display="grid";
-    loadSheet();
-    hideLoading();
+      pickerCard.style.display = "grid";
+
+      loadSheet();
+
+    } catch(err){
+      alert("Invalid XLSX file");
+    }
+
+    hideLoading();  // <-- SELALU DIEKSEKUSI
   };
+
 
   reader.readAsArrayBuffer(file);
 }
